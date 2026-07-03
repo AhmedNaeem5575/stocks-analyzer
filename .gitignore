@@ -10,7 +10,6 @@ stocks-analyze/data/exports/*.csv
 stocks-analyze/data/exports/*.xlsx
 
 # Database backups
-*.sql
 *.dump
 
 # Python
