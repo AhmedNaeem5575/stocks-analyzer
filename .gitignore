@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+
+# Environment variables
+.env
+
+# Data exports (keep structure, ignore data)
+stocks-analyze/data/exports/*.json
+stocks-analyze/data/exports/*.csv
+stocks-analyze/data/exports/*.xlsx
+
+# Database backups
+*.sql
+*.dump
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+
+/dashboard/stocks-analyzer/
+/data/exports/

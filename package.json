@@ -1,0 +1,30 @@
+{
+  "name": "psx-stock-analysis",
+  "version": "1.0.0",
+  "description": "Comprehensive PSX stock analysis system for investment recommendations",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "scrape": "node scraper.js",
+    "analyze": "node analyzer.js",
+    "strategies": "node strategies.js",
+    "pipeline": "node pipeline.js",
+    "cli": "node cli.js"
+  },
+  "keywords": ["psx", "stock", "analysis", "pakistan", "investment"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "playwright": "^1.40.0",
+    "pg": "^8.11.3",
+    "pg-hstore": "^2.3.4",
+    "axios": "^1.6.0",
+    "cheerio": "^1.0.0-rc12",
+    "node-cron": "^3.0.3",
+    "dotenv": "^16.3.1",
+    "csv-writer": "^1.6.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.55.0"
+  }
+}
