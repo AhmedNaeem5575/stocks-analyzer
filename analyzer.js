@@ -548,5 +548,8 @@ module.exports = {
   calculateMomentumScore,
   calculateDividendScore,
   calculateSectorScore,
-  calculateCompositeScore
+  calculateCompositeScore,
+  calculateVolatility,
+  calculateLiquidityScore,
+  determineRiskLevel
 };

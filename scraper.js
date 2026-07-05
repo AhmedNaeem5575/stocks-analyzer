@@ -1,35 +1,24 @@
 /**
- * PSX Data Scraper Module
- * Collects stock data from Pakistan Stock Exchange screener using Playwright
+ * PSX Data Scraper Module (Simple Version)
+ * Collects stock data from Pakistan Stock Exchange market-watch using axios & cheerio
  *
  * LEGAL NOTICE: The PSX website restricts automated data collection.
  * For authorized data access, contact: marketdatarequest@psx.com.pk
  * This implementation is for personal investing and educational purposes.
  */
 
-const { chromium } = require('playwright');
+const fetch = require('node-fetch');
+const cheerio = require('cheerio');
 const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
 
 // Configuration
 const config = {
-  screenerUrl: process.env.PSX_SCREENER_URL || 'https://dps.psx.com.pk/screener',
-  headless: process.env.HEADLESS === 'false' ? false : true,
-  delayMin: parseInt(process.env.SCRAPE_DELAY_MIN) || 2000,
-  delayMax: parseInt(process.env.SCRAPE_DELAY_MAX) || 5000,
-  maxRetries: 3,
-  timeout: 60000,
+  marketWatchUrl: process.env.PSX_MARKET_WATCH_URL || 'https://dps.psx.com.pk/market-watch',
+  timeout: 30000,
   userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 };
-
-/**
- * Random delay between min and max milliseconds
- */
-function randomDelay() {
-  const delay = Math.floor(Math.random() * (config.delayMax - config.delayMin + 1)) + config.delayMin;
-  return new Promise(resolve => setTimeout(resolve, delay));
-}
 
 /**
  * Format number string (e.g., "1.5M" to 1500000)
@@ -86,158 +75,134 @@ function formatPercentage(str, maxValue = 999.99) {
 }
 
 /**
- * Scrape PSX screener page
+ * Sector code to name mapping
+ * PSX uses numeric sector codes in the market-watch table
  */
-async function scrapeScreenerPage(page, pageNum = 1) {
-  console.log(`Scraping page ${pageNum}...`);
+const sectorCodeMap = {
+  '0801': 'Automobile',
+  '0802': 'Automobile',
+  '0803': 'Engineering',
+  '0804': 'Cement',
+  '0805': 'Chemicals',
+  '0806': 'Mutual Funds',
+  '0807': 'Financials',
+  '0808': 'Engineering',
+  '0809': 'Fertilizer',
+  '0810': 'Food',
+  '0811': 'Materials',
+  '0812': 'Financials',
+  '0813': 'Financials',
+  '0814': 'Materials',
+  '0815': 'Financials',
+  '0816': 'Materials',
+  '0818': 'Other',
+  '0819': 'Financials',
+  '0820': 'Energy',
+  '0821': 'Energy',
+  '0822': 'Materials',
+  '0823': 'Pharmaceuticals',
+  '0824': 'Energy',
+  '0825': 'Energy',
+  '0826': 'Food',
+  '0827': 'Textile',
+  '0828': 'Technology',
+  '0829': 'Textile',
+  '0830': 'Textile',
+  '0831': 'Textile',
+  '0832': 'Consumer Goods',
+  '0833': 'Transportation',
+  '0834': 'Food',
+  '0835': 'Textile',
+  '0836': 'Real Estate',
+  '0837': 'Mutual Funds',
+  '0838': 'Real Estate',
+  '0839': 'Textile'
+};
 
-  try {
-    // Wait for table to load
-    await page.waitForSelector('table, tbody, tr', { timeout: 10000 });
+/**
+ * Convert sector code to sector name
+ * @param {string} sector - The sector value from the table (could be code or name)
+ */
+function formatSector(sector) {
+  if (!sector || sector === '-' || sector === 'N/A') return 'Unknown';
 
-    // Scroll to ensure all data is loaded
-    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  const sectorStr = sector.toString().trim();
 
-    // Get all table rows
-    const stocks = await page.evaluate(() => {
-      const rows = document.querySelectorAll('table tbody tr');
-      return Array.from(rows).map(row => {
-        const cells = row.querySelectorAll('td');
-        if (cells.length === 0) return null;
-
-        const getText = (index) => cells[index]?.textContent?.trim() || null;
-        const getLinkText = (index) => {
-          const link = cells[index]?.querySelector('a');
-          return link?.textContent?.trim() || null;
-        };
-
-        // PSX Screener actual column structure (as of 2026):
-        // 0: SYMBOL, 1: MARKET CAP, 2: PRICE, 3: CHANGE (%),
-        // 4: 1-YEAR CH. (%), 5: PE RATIO, 6: DIVIDEND YIELD,
-        // 7: FREE FLOAT, 8: 30D VOLUME AVG
-
-        return {
-          symbol: getLinkText(0) || getText(0),
-          name: null, // Not available in main table
-          sector: null, // Not available in main table
-          price: getText(2),
-          change: getText(3),
-          change_pct: getText(3), // Same as change, includes %
-          change_1y: getText(4),
-          volume: getText(8),
-          market_cap: getText(1),
-          pe_ratio: getText(5),
-          dividend_yield: getText(6),
-          free_float: getText(7),
-          avg_volume_30d: getText(8)
-        };
-      }).filter(item => item !== null && item.symbol);
-    });
-
-    console.log(`Found ${stocks.length} stocks on page ${pageNum}`);
-    return stocks;
-  } catch (error) {
-    console.error(`Error scraping page ${pageNum}:`, error.message);
-    return [];
+  // Check if it's a 4-digit sector code
+  if (/^\d{4}$/.test(sectorStr)) {
+    return sectorCodeMap[sectorStr] || sectorStr;
   }
+
+  // Already a sector name, return as-is
+  return sectorStr;
 }
 
 /**
- * Navigate through pagination and scrape all pages
+ * Scrape market-watch page
  */
-async function scrapeAllPages(page) {
-  const allStocks = [];
-  let pageNum = 1;
-  let hasNextPage = true;
-  let emptyPageCount = 0; // Track consecutive empty pages
+async function scrapeMarketWatch() {
+  console.log(`Fetching data from ${config.marketWatchUrl}...`);
 
-  while (hasNextPage) {
-    const stocks = await scrapeScreenerPage(page, pageNum);
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), config.timeout);
 
-    // If no stocks returned, we've reached the end
-    if (stocks.length === 0) {
-      console.log(`Page ${pageNum} returned no stocks, stopping pagination`);
-      hasNextPage = false;
-      break;
-    }
-
-    emptyPageCount = 0; // Reset empty page counter
-    allStocks.push(...stocks);
-
-    // Check for next page button/link
-    const hasNext = await page.evaluate(() => {
-      // Look for "Next" button or pagination links
-      const nextButton = document.querySelector('a[rel="next"], .next, button[aria-label="Next"]');
-      const paginationLinks = Array.from(document.querySelectorAll('.pagination a, nav a'));
-      const currentPage = paginationLinks.find(a => a.classList.contains('active') || a.getAttribute('aria-current') === 'page');
-      const currentPageNum = currentPage ? parseInt(currentPage.textContent) : 1;
-
-      // Check if there's a page number greater than current
-      const hasHigherPage = paginationLinks.some(a => {
-        const num = parseInt(a.textContent);
-        return !isNaN(num) && num > currentPageNum;
-      });
-
-      return !!(nextButton || hasHigherPage);
+    const response = await fetch(config.marketWatchUrl, {
+      headers: {
+        'User-Agent': config.userAgent,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5'
+      },
+      signal: controller.signal
     });
 
-    if (hasNext) {
-      await randomDelay();
+    clearTimeout(timeoutId);
 
-      try {
-        // Try clicking next button or navigating to next page
-        const clicked = await page.evaluate(() => {
-          const nextButton = document.querySelector('a[rel="next"], .next, button[aria-label="Next"]');
-          if (nextButton) {
-            nextButton.click();
-            return true;
-          }
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
 
-          // Try clicking the next page number
-          const paginationLinks = Array.from(document.querySelectorAll('.pagination a, nav a'));
-          const currentPage = paginationLinks.find(a =>
-            a.classList.contains('active') || a.getAttribute('aria-current') === 'page'
-          );
-          const currentPageNum = currentPage ? parseInt(currentPage.textContent) : 1;
+    const html = await response.text();
+    const $ = cheerio.load(html);
+    const stocks = [];
 
-          const nextPageLink = paginationLinks.find(a => {
-            const num = parseInt(a.textContent);
-            return !isNaN(num) && num === currentPageNum + 1;
-          });
+    // Parse table rows
+    $('table.tbl tbody tr').each((index, element) => {
+      const $row = $(element);
+      const cells = $row.find('td');
 
-          if (nextPageLink) {
-            nextPageLink.click();
-            return true;
-          }
+      if (cells.length >= 11) {
+        const symbol = $row.find('td:first a').text().trim();
 
-          return false;
+        // Skip if no symbol found
+        if (!symbol) return;
+
+        stocks.push({
+          symbol: symbol,
+          name: null, // Not available in market-watch table
+          sector: formatSector($(cells[1]).text().trim()),
+          open: formatNumber($(cells[4]).text()),
+          high: formatNumber($(cells[5]).text()),
+          low: formatNumber($(cells[6]).text()),
+          close: formatNumber($(cells[7]).text()),
+          change: formatNumber($(cells[8]).text()),
+          change_pct: formatPercentage($(cells[9]).text()),
+          volume: formatNumber($(cells[10]).text(), true),
+          market_cap: null, // Not in market-watch table
+          pe_ratio: null, // Not in market-watch table
+          dividend_yield: null, // Not in market-watch table
+          free_float: null, // Not in market-watch table
+          avg_volume_30d: null // Not in market-watch table
         });
-
-        if (!clicked) {
-          console.log('Could not find next page button, stopping pagination');
-          hasNextPage = false;
-        } else {
-          // Wait for page to load
-          await page.waitForTimeout(2000);
-          pageNum++;
-        }
-      } catch (error) {
-        console.error('Error navigating to next page:', error.message);
-        hasNextPage = false;
       }
-    } else {
-      hasNextPage = false;
-    }
+    });
 
-    // Safety limit to prevent infinite loops
-    if (pageNum > 50) {
-      console.log('Reached maximum page limit (50), stopping pagination');
-      hasNextPage = false;
-    }
+    console.log(`Found ${stocks.length} stocks`);
+    return stocks;
+  } catch (error) {
+    console.error('Error scraping market-watch:', error.message);
+    return [];
   }
-
-  console.log(`Total stocks scraped: ${allStocks.length} from ${pageNum} pages`);
-  return allStocks;
 }
 
 /**
@@ -245,7 +210,6 @@ async function scrapeAllPages(page) {
  */
 function generateScrapeId() {
   const now = new Date();
-  // Format: YYYYMMDD-HHMMSS for readability
   const date = now.toISOString().replace(/[-:.]/g, '').substring(0, 15);
   const randomSuffix = Math.random().toString(36).substring(2, 5).toUpperCase();
   return `${date}-${randomSuffix}`;
@@ -264,16 +228,19 @@ function transformStockData(rawStocks, scrapeTime, scrapeId) {
     scrape_date: scrapeDate,
     symbol: stock.symbol,
     name: stock.symbol, // Use symbol as name since not available
-    sector: 'Unknown', // Sector not available in main table
-    close: formatNumber(stock.price),
-    change_1d: formatPercentage(stock.change_pct),
-    change_1y: formatPercentage(stock.change_1y),
-    volume: formatNumber(stock.volume, true),
-    market_cap: formatNumber(stock.market_cap, true),
-    pe_ratio: formatNumber(stock.pe_ratio, false, 99999999.99),  // DECIMAL(10,2) max
-    dividend_yield: formatPercentage(stock.dividend_yield),
-    free_float: formatNumber(stock.free_float, true),
-    avg_volume_30d: formatNumber(stock.avg_volume_30d, true)
+    sector: stock.sector || 'Unknown',
+    close: stock.close,
+    open: stock.open,
+    high: stock.high,
+    low: stock.low,
+    change_1d: stock.change_pct,
+    change_1y: null, // Not available in market-watch
+    volume: stock.volume,
+    market_cap: stock.market_cap,
+    pe_ratio: stock.pe_ratio,
+    dividend_yield: stock.dividend_yield,
+    free_float: stock.free_float,
+    avg_volume_30d: stock.avg_volume_30d
   }));
 }
 
@@ -282,51 +249,21 @@ function transformStockData(rawStocks, scrapeTime, scrapeId) {
  */
 async function scrapePSX(options = {}) {
   const {
-    headless = config.headless,
-    saveJson = true,
-    saveCsv = false
+    saveJson = true
   } = options;
 
-  console.log('Starting PSX scraper...');
-  console.log(`URL: ${config.screenerUrl}`);
-  console.log(`Headless: ${headless}\n`);
+  console.log('Starting PSX scraper (Simple Version)...');
+  console.log(`URL: ${config.marketWatchUrl}\n`);
 
-  const browser = await chromium.launch({
-    headless,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
-  });
-
-  const context = await browser.newContext({
-    userAgent: config.userAgent,
-    viewport: { width: 1920, height: 1080 }
-  });
-
-  const page = await context.newPage();
   const startTime = Date.now();
 
   try {
-    // Navigate to screener
-    console.log('Navigating to PSX screener...');
-    await page.goto(config.screenerUrl, {
-      waitUntil: 'networkidle',
-      timeout: config.timeout
-    });
+    // Scrape market-watch page
+    const rawStocks = await scrapeMarketWatch();
 
-    await randomDelay();
-
-    // Check if we need to accept cookies or handle any popups
-    try {
-      const cookieButton = await page.$('button:has-text("Accept"), button:has-text("Agree"), .cookie-accept');
-      if (cookieButton) {
-        await cookieButton.click();
-        await randomDelay();
-      }
-    } catch (error) {
-      // No cookie popup, continue
+    if (rawStocks.length === 0) {
+      throw new Error('No stocks found');
     }
-
-    // Scrape all pages
-    const rawStocks = await scrapeAllPages(page);
 
     // Transform data
     const scrapeTime = new Date();
@@ -378,7 +315,7 @@ async function scrapePSX(options = {}) {
           stocks_scraped: dailyResult.successCount,
           errors: dailyResult.failureCount,
           duration_seconds: duration,
-          data_source: 'PSX Screener'
+          data_source: 'PSX Market Watch'
         });
 
         console.log(`Database insert completed: ${dailyResult.successCount} succeeded, ${dailyResult.failureCount} failed`);
@@ -408,7 +345,7 @@ async function scrapePSX(options = {}) {
         errors: 1,
         error_details: error.message,
         duration_seconds: Math.round((Date.now() - startTime) / 1000),
-        data_source: 'PSX Screener'
+        data_source: 'PSX Market Watch'
       });
     } catch (dbError) {
       // Database not available
@@ -419,104 +356,12 @@ async function scrapePSX(options = {}) {
       error: error.message,
       stocks: []
     };
-  } finally {
-    await browser.close();
   }
-}
-
-/**
- * Scrape individual stock historical data
- */
-async function scrapeStockHistory(symbol, months = 12) {
-  console.log(`Scraping historical data for ${symbol}...`);
-
-  const browser = await chromium.launch({ headless: config.headless });
-  const context = await browser.newContext({ userAgent: config.userAgent });
-  const page = await context.newPage();
-
-  try {
-    const url = `https://dps.psx.com.pk/company/${symbol}`;
-    await page.goto(url, { waitUntil: 'networkidle', timeout: config.timeout });
-    await randomDelay();
-
-    // Try to find historical data table or chart
-    const historicalData = await page.evaluate(() => {
-      // This will need to be adapted based on actual page structure
-      const rows = document.querySelectorAll('table.historical-table tbody tr, .price-history tbody tr');
-      return Array.from(rows).map(row => {
-        const cells = row.querySelectorAll('td');
-        if (cells.length >= 5) {
-          return {
-            date: cells[0]?.textContent?.trim(),
-            open: cells[1]?.textContent?.trim(),
-            high: cells[2]?.textContent?.trim(),
-            low: cells[3]?.textContent?.trim(),
-            close: cells[4]?.textContent?.trim(),
-            volume: cells[5]?.textContent?.trim()
-          };
-        }
-        return null;
-      }).filter(item => item !== null);
-    });
-
-    console.log(`Found ${historicalData.length} historical data points for ${symbol}`);
-    return { symbol, data: historicalData };
-
-  } catch (error) {
-    console.error(`Error scraping history for ${symbol}:`, error.message);
-    return { symbol, data: [], error: error.message };
-  } finally {
-    await browser.close();
-  }
-}
-
-/**
- * Load previously scraped data from file
- */
-function loadScrapedData(filename) {
-  const filepath = filename
-    ? filename
-    : path.join(__dirname, 'data', 'exports', 'stocks_latest.json');
-
-  try {
-    if (fs.existsSync(filepath)) {
-      const data = fs.readFileSync(filepath, 'utf8');
-      return JSON.parse(data);
-    }
-    console.log(`No existing data found at: ${filepath}`);
-    return null;
-  } catch (error) {
-    console.error(`Error loading data from ${filepath}:`, error.message);
-    return null;
-  }
-}
-
-/**
- * Get latest scraped data
- */
-function getLatestData() {
-  const exportDir = path.join(__dirname, 'data', 'exports');
-
-  if (!fs.existsSync(exportDir)) {
-    return null;
-  }
-
-  const files = fs.readdirSync(exportDir)
-    .filter(f => f.startsWith('stocks_') && f.endsWith('.json'))
-    .sort()
-    .reverse();
-
-  if (files.length === 0) {
-    return null;
-  }
-
-  const latestFile = path.join(exportDir, files[0]);
-  return loadScrapedData(latestFile);
 }
 
 // Run scraper if called directly
 if (require.main === module) {
-  scrapePSX({ headless: true })
+  scrapePSX({ saveJson: true })
     .then(result => {
       if (result.success) {
         console.log('\n✓ Scraping completed successfully');
@@ -536,8 +381,5 @@ if (require.main === module) {
 
 module.exports = {
   scrapePSX,
-  scrapeStockHistory,
-  loadScrapedData,
-  getLatestData,
   config
 };

@@ -87,11 +87,12 @@ stocks-analyze/
 ┌────────────────────────────────────────────────────────────┐
 │                     BACKEND (Node.js)                       │
 ├────────────────────────────────────────────────────────────┤
-│  • playwright    - Browser automation                      │
-│  • pg            - PostgreSQL client                       │
-│  • dotenv        - Configuration management                │
 │  • axios         - HTTP requests                          │
 │  • cheerio       - HTML parsing                            │
+│  • pg            - PostgreSQL client                       │
+│  • dotenv        - Configuration management                │
+│  • nodemailer    - Email notifications                      │
+│  • handlebars    - Template rendering                       │
 └────────────────────────────────────────────────────────────┘
 
 ┌────────────────────────────────────────────────────────────┐
@@ -130,17 +131,11 @@ node scraper.js
 
 ```
 ┌──────────────────┐
-│  Launch Browser  │ (Playwright headless browser)
+│   HTTP Request    │ (axios - fetch market-watch page)
 └────────┬─────────┘
          ▼
 ┌──────────────────┐
-│ Navigate to PSX  │ (https://www.psx.com.pk/market-summary/)
-│    Screener      │
-└────────┬─────────┘
-         ▼
-┌──────────────────┐
-│ Extract Table    │ (Parse HTML, extract stock data)
-│     Data         │
+│  Parse HTML      │ (cheerio - extract table data)
 └────────┬─────────┘
          ▼
 ┌──────────────────┐
@@ -176,9 +171,10 @@ node scraper.js
 #### Key Points
 
 > - **Legal Notice:** PSX restricts automated data collection. For authorized access, contact marketdatarequest@psx.com.pk
-> - Uses **headless browser** to handle JavaScript-rendered content
+> - Uses **axios + cheerio** for fast, lightweight scraping (2-3 seconds)
 > - Implements **error handling** for network issues and missing data
 > - Exports JSON to `data/stocks-{timestamp}.json` for backup
+> - Fetches data from `https://dps.psx.com.pk/market-watch`
 
 ---
 
