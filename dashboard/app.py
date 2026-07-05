@@ -451,27 +451,55 @@ with tab2:
         st.warning("No stock data available")
         st.info("Run `npm run scrape` to collect latest data")
     else:
+        # Checkbox to show inactive stocks
+        show_inactive = st.checkbox("Show Inactive Stocks", value=False, help="Include stocks that are not actively trading (suspended, delisted, or not seen in 30+ days)")
+
         # Search/filter
         search = st.text_input("Search stocks", placeholder="Enter symbol or name...")
 
-        # Filter stocks
+        # Filter stocks - first by active status, then by search
+        if show_inactive:
+            # Show all stocks
+            base_stocks = stocks
+        else:
+            # Only show active stocks
+            base_stocks = stocks[stocks['is_active'] == True]
+
+        # Then apply search filter
         if search:
-            filtered = stocks[
-                stocks['symbol'].str.contains(search, case=False, na=False) |
-                stocks['name'].str.contains(search, case=False, na=False)
+            filtered = base_stocks[
+                base_stocks['symbol'].str.contains(search, case=False, na=False) |
+                base_stocks['name'].str.contains(search, case=False, na=False)
             ]
         else:
-            filtered = stocks
+            filtered = base_stocks
 
         st.write(f"Showing {len(filtered)} stocks")
 
+        # Show inactive warning if applicable
+        if not show_inactive:
+            inactive_count = len(stocks[stocks['is_active'] == False])
+            if inactive_count > 0:
+                st.info(f"ℹ️ {inactive_count} inactive stocks are hidden. Check 'Show Inactive Stocks' to see them.")
+
+        # Add active/inactive status column
+        def format_active_status(row):
+            if pd.isna(row['is_active']) or row['is_active'] == False:
+                return "🔴 Inactive"
+            return "🟢 Active"
+
+        # Create a copy to avoid modifying the original
+        display_df = filtered.copy()
+        display_df['status'] = display_df.apply(format_active_status, axis=1)
+
         # Display table
         st.dataframe(
-            filtered[['symbol', 'name', 'sector', 'current_price', 'change_1d', 'pe_ratio', 'composite_score', 'risk_level']],
+            display_df[['symbol', 'name', 'sector', 'status', 'current_price', 'change_1d', 'pe_ratio', 'composite_score', 'risk_level']],
             column_config={
                 "symbol": TextColumn("Symbol", width="medium"),
                 "name": TextColumn("Name", width="large"),
                 "sector": TextColumn("Sector", width="medium"),
+                "status": TextColumn("Status", width="small"),
                 "current_price": NumberColumn("Price", format="Rs. %.2f"),
                 "change_1d": NumberColumn("1D Change %", format="%.2f%%"),
                 "pe_ratio": NumberColumn("PE Ratio", format="%.2f"),

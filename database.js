@@ -74,23 +74,43 @@ async function initializeSchema() {
  * Insert or update stock basic information
  */
 async function upsertStock(stockData) {
-  const { symbol, name, sector, industry, listed_date, face_value } = stockData;
+  const {
+    symbol,
+    name,
+    sector,
+    industry,
+    listed_date,
+    face_value,
+    is_active = true,
+    last_seen_date = null
+  } = stockData;
 
   const query = `
-    INSERT INTO stocks (symbol, name, sector, industry, listed_date, face_value, updated_at)
-    VALUES ($1, $2, $3, $4, $5, $6, NOW())
+    INSERT INTO stocks (symbol, name, sector, industry, listed_date, face_value, is_active, last_seen_date, updated_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
     ON CONFLICT (symbol)
     DO UPDATE SET
-      name = EXCLUDED.name,
-      sector = EXCLUDED.sector,
-      industry = EXCLUDED.industry,
-      listed_date = EXCLUDED.listed_date,
-      face_value = EXCLUDED.face_value,
+      name = COALESCE(EXCLUDED.name, stocks.name),
+      sector = COALESCE(EXCLUDED.sector, stocks.sector),
+      industry = COALESCE(EXCLUDED.industry, stocks.industry),
+      listed_date = COALESCE(EXCLUDED.listed_date, stocks.listed_date),
+      face_value = COALESCE(EXCLUDED.face_value, stocks.face_value),
+      is_active = EXCLUDED.is_active,
+      last_seen_date = GREATEST(EXCLUDED.last_seen_date, COALESCE(stocks.last_seen_date, EXCLUDED.last_seen_date)),
       updated_at = NOW()
   `;
 
   try {
-    await pool.query(query, [symbol, name, sector, industry, listed_date, face_value]);
+    await pool.query(query, [
+      symbol,
+      name,
+      sector,
+      industry,
+      listed_date,
+      face_value,
+      is_active,
+      last_seen_date
+    ]);
     return { success: true, symbol };
   } catch (error) {
     console.error(`Error upserting stock ${symbol}:`, error.message);
@@ -1057,6 +1077,51 @@ async function closePool() {
   console.log('Database connection pool closed');
 }
 
+/**
+ * Mark stocks as inactive if not seen recently
+ * @param {number} days - Number of days since last seen (default: 30)
+ */
+async function markInactiveStocks(days = 30) {
+  const query = `
+    UPDATE stocks
+    SET is_active = false
+    WHERE is_active = true
+      AND (last_seen_date < CURRENT_DATE - INTERVAL '${days} days'
+        OR last_seen_date IS NULL)
+  `;
+
+  try {
+    const result = await pool.query(query);
+    console.log(`Marked ${result.rowCount} stocks as inactive (not seen in ${days}+ days)`);
+    return { success: true, marked: result.rowCount };
+  } catch (error) {
+    console.error('Error marking inactive stocks:', error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Get statistics on active vs inactive stocks
+ */
+async function getActiveStockStats() {
+  const query = `
+    SELECT
+      COUNT(*) as total,
+      COUNT(*) FILTER (WHERE is_active = true) as active,
+      COUNT(*) FILTER (WHERE is_active = false) as inactive,
+      COUNT(*) FILTER (WHERE last_seen_date IS NULL) as never_seen
+    FROM stocks
+  `;
+
+  try {
+    const result = await pool.query(query);
+    return { success: true, stats: result.rows[0] };
+  } catch (error) {
+    console.error('Error getting active stock stats:', error.message);
+    return { success: false, error: error.message };
+  }
+}
+
 module.exports = {
   pool,
   testConnection,
@@ -1085,5 +1150,7 @@ module.exports = {
   markAlertsAsRead,
   getUserEmail,
   getOrCreateUserId,
-  closePool
+  closePool,
+  markInactiveStocks,
+  getActiveStockStats
 };

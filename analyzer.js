@@ -313,9 +313,13 @@ function calculateVolatility(stockHistory) {
   const stdDev = Math.sqrt(variance);
 
   // Annualize (assuming ~250 trading days per year)
-  const annualizedVolatility = stdDev * Math.sqrt(250) * 100;
+  // Volatility is expressed as percentage (0-100 scale typically 0-50%)
+  const annualizedVolatility = (stdDev * Math.sqrt(250)) * 100;
 
-  return Math.round(annualizedVolatility * 100) / 100;
+  // Clamp to reasonable range (0-100%) to prevent overflow
+  const clampedVolatility = Math.max(0, Math.min(100, annualizedVolatility));
+
+  return Math.round(clampedVolatility * 100) / 100;
 }
 
 /**
@@ -375,12 +379,15 @@ function determineRiskLevel(volatility, financialScore, liquidityScore) {
  * Weights: Financial 25%, Momentum 30%, Dividend 20%, Sector 25%
  */
 function calculateCompositeScore(financialHealth, momentum, dividend, sector) {
-  return Math.round(
+  const composite =
     (financialHealth * 0.25) +
     (momentum * 0.30) +
     (dividend * 0.20) +
     (sector * 0.25)
-  );
+  ;
+
+  // Clamp to 0-100 range to handle any edge cases
+  return Math.max(0, Math.min(100, Math.round(composite)));
 }
 
 /**
@@ -393,28 +400,33 @@ async function analyzeStock(stockData, sectorData, stockHistory) {
   const dividend = calculateDividendScore(stockData, stockHistory);
   const sector = calculateSectorScore(stockData, sectorData);
 
-  // Calculate volatility
+  // Calculate volatility (with clamping)
   const volatility = calculateVolatility(stockHistory);
 
-  // Calculate liquidity
+  // Calculate liquidity (with clamping)
   const liquidity = calculateLiquidityScore(stockData);
 
   // Determine risk level
   const riskLevel = determineRiskLevel(volatility, financialHealth, liquidity);
 
-  // Calculate composite score
+  // Calculate composite score (with clamping)
   const compositeScore = calculateCompositeScore(financialHealth, momentum, dividend, sector);
+
+  // Final safety clamp - ensure all scores are within 0-100 before returning
+  const clampedScores = {
+    financial_health_score: Math.max(0, Math.min(100, financialHealth)),
+    momentum_score: Math.max(0, Math.min(100, momentum)),
+    dividend_score: Math.max(0, Math.min(100, dividend)),
+    sector_score: Math.max(0, Math.min(100, sector)),
+    composite_score: Math.max(0, Math.min(100, compositeScore)),
+    volatility: volatility !== null ? Math.max(0, Math.min(100, volatility)) : null,
+    liquidity_score: Math.max(0, Math.min(100, liquidity))
+  };
 
   return {
     symbol: stockData.symbol,
     time: new Date(),
-    financial_health_score: financialHealth,
-    momentum_score: momentum,
-    dividend_score: dividend,
-    sector_score: sector,
-    composite_score: compositeScore,
-    volatility,
-    liquidity_score: liquidity,
+    ...clampedScores,
     risk_level: riskLevel
   };
 }

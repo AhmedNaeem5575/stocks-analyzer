@@ -300,7 +300,9 @@ async function scrapePSX(options = {}) {
         const stocksBasicData = stocks.map(s => ({
           symbol: s.symbol,
           name: s.name,
-          sector: s.sector
+          sector: s.sector,
+          is_active: true,
+          last_seen_date: scrapeTime.toISOString().substring(0, 10)
         }));
 
         const stockResult = await db.bulkInsertStocks(stocksBasicData);
@@ -319,6 +321,10 @@ async function scrapePSX(options = {}) {
         });
 
         console.log(`Database insert completed: ${dailyResult.successCount} succeeded, ${dailyResult.failureCount} failed`);
+
+        // Mark stocks as inactive if not seen in 30+ days
+        console.log('Step 3: Marking inactive stocks...');
+        await db.markInactiveStocks(30);
       }
     } catch (error) {
       console.log('\nNote: Database save skipped (database not configured)');
