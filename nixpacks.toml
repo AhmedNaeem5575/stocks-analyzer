@@ -1,8 +1,9 @@
-[providers]
-# Enable both Node and Python
-providers = ["node", "python"]
-
 [phases.setup]
-# Install Python dependencies from dashboard/requirements.txt
+nixPkgs = ["python311", "python311Packages.pip"]
 cmds = ["pip install -r dashboard/requirements.txt"]
 
+[phases.build]
+dependsOn = ["setup"]
+
+[start]
+cmd = "cd dashboard && python -m streamlit run app.py --server.port=8080 --server.address=0.0.0.0"
