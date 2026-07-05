@@ -184,28 +184,29 @@ async function bulkUpdateChanges(updates) {
     const whens = [];
 
     for (const update of updates) {
-      const key = `${update.symbol}_${update.time.getTime()}`;
-      whens.push(`'${update.symbol}_${update.time.getTime()}'`);
+      const dateKey = update.time.toISOString().substring(0, 10);
+      const key = `${update.symbol}_${dateKey}`;
+      whens.push(`'${update.symbol}_${dateKey}'`);
 
-      cases.change_1d.push(`WHEN '${update.symbol}_${update.time.getTime()}' THEN ${formatValue(update.changes.change_1d)}`);
-      cases.change_1w.push(`WHEN '${update.symbol}_${update.time.getTime()}' THEN ${formatValue(update.changes.change_1w)}`);
-      cases.change_1m.push(`WHEN '${update.symbol}_${update.time.getTime()}' THEN ${formatValue(update.changes.change_1m)}`);
-      cases.change_3m.push(`WHEN '${update.symbol}_${update.time.getTime()}' THEN ${formatValue(update.changes.change_3m)}`);
-      cases.change_6m.push(`WHEN '${update.symbol}_${update.time.getTime()}' THEN ${formatValue(update.changes.change_6m)}`);
-      cases.change_1y.push(`WHEN '${update.symbol}_${update.time.getTime()}' THEN ${formatValue(update.changes.change_1y)}`);
+      cases.change_1d.push(`WHEN '${update.symbol}_${dateKey}' THEN ${formatValue(update.changes.change_1d)}`);
+      cases.change_1w.push(`WHEN '${update.symbol}_${dateKey}' THEN ${formatValue(update.changes.change_1w)}`);
+      cases.change_1m.push(`WHEN '${update.symbol}_${dateKey}' THEN ${formatValue(update.changes.change_1m)}`);
+      cases.change_3m.push(`WHEN '${update.symbol}_${dateKey}' THEN ${formatValue(update.changes.change_3m)}`);
+      cases.change_6m.push(`WHEN '${update.symbol}_${dateKey}' THEN ${formatValue(update.changes.change_6m)}`);
+      cases.change_1y.push(`WHEN '${update.symbol}_${dateKey}' THEN ${formatValue(update.changes.change_1y)}`);
     }
 
     const query = `
       UPDATE stock_daily_data
       SET
-        change_1d = (CASE (symbol || '_' || extract(epoch from time)::bigint)::text ${cases.change_1d.map(c => c).join(' ')} ELSE NULL::numeric END)::numeric,
-        change_1w = (CASE (symbol || '_' || extract(epoch from time)::bigint)::text ${cases.change_1w.map(c => c).join(' ')} ELSE NULL::numeric END)::numeric,
-        change_1m = (CASE (symbol || '_' || extract(epoch from time)::bigint)::text ${cases.change_1m.map(c => c).join(' ')} ELSE NULL::numeric END)::numeric,
-        change_3m = (CASE (symbol || '_' || extract(epoch from time)::bigint)::text ${cases.change_3m.map(c => c).join(' ')} ELSE NULL::numeric END)::numeric,
-        change_6m = (CASE (symbol || '_' || extract(epoch from time)::bigint)::text ${cases.change_6m.map(c => c).join(' ')} ELSE NULL::numeric END)::numeric,
-        change_1y = (CASE (symbol || '_' || extract(epoch from time)::bigint)::text ${cases.change_1y.map(c => c).join(' ')} ELSE NULL::numeric END)::numeric
-      WHERE (symbol, time) IN (
-        ${updates.map(u => `('${u.symbol}', '${u.time.toISOString()}')`).join(', ')}
+        change_1d = (CASE (symbol || '_' || time::date)::text ${cases.change_1d.map(c => c).join(' ')} ELSE NULL::numeric END)::numeric,
+        change_1w = (CASE (symbol || '_' || time::date)::text ${cases.change_1w.map(c => c).join(' ')} ELSE NULL::numeric END)::numeric,
+        change_1m = (CASE (symbol || '_' || time::date)::text ${cases.change_1m.map(c => c).join(' ')} ELSE NULL::numeric END)::numeric,
+        change_3m = (CASE (symbol || '_' || time::date)::text ${cases.change_3m.map(c => c).join(' ')} ELSE NULL::numeric END)::numeric,
+        change_6m = (CASE (symbol || '_' || time::date)::text ${cases.change_6m.map(c => c).join(' ')} ELSE NULL::numeric END)::numeric,
+        change_1y = (CASE (symbol || '_' || time::date)::text ${cases.change_1y.map(c => c).join(' ')} ELSE NULL::numeric END)::numeric
+      WHERE (symbol, time::date) IN (
+        ${updates.map(u => `('${u.symbol}', '${u.time.toISOString().substring(0, 10)}')`).join(', ')}
       )
     `;
 
