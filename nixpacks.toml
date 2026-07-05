@@ -1,0 +1,8 @@
+[providers]
+# Enable both Node and Python
+providers = ["node", "python"]
+
+[phases.setup]
+# Install Python dependencies from dashboard/requirements.txt
+cmds = ["pip install -r dashboard/requirements.txt"]
+
