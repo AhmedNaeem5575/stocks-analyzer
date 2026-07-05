@@ -208,6 +208,87 @@ async function insertScore(scoreData) {
 }
 
 /**
+ * Bulk insert stock scores (true bulk insert with single query)
+ */
+async function bulkInsertScores(scoresData) {
+  if (!scoresData || scoresData.length === 0) {
+    return { success: true, successCount: 0, failureCount: 0 };
+  }
+
+  const client = await pool.connect();
+  let successCount = 0;
+  let failureCount = 0;
+
+  try {
+    await client.query('BEGIN');
+
+    // Helper function to format a value for SQL
+    const formatValue = (val) => {
+      if (val === null || val === undefined) return 'NULL';
+      if (typeof val === 'string') return `'${val.replace(/'/g, "''")}'`;
+      if (val instanceof Date) return `'${val.toISOString()}'`;
+      if (typeof val === 'number') {
+        if (!isFinite(val)) return 'NULL';
+        // For numeric columns, ensure proper type
+        return String(val);
+      }
+      return 'NULL';
+    };
+
+    // Build bulk insert query
+    const rows = [];
+    for (const data of scoresData) {
+      const row = `(
+        ${formatValue(data.time)},
+        ${formatValue(data.symbol)},
+        ${formatValue(data.financial_health_score)},
+        ${formatValue(data.momentum_score)},
+        ${formatValue(data.dividend_score)},
+        ${formatValue(data.sector_score)},
+        ${formatValue(data.composite_score)},
+        ${formatValue(data.volatility)},
+        ${formatValue(data.liquidity_score)},
+        ${formatValue(data.risk_level)}
+      )`;
+
+      rows.push(row.replace(/\s+/g, ' '));
+    }
+
+    const query = `
+      INSERT INTO stock_scores (
+        time, symbol, financial_health_score, momentum_score,
+        dividend_score, sector_score, composite_score,
+        volatility, liquidity_score, risk_level
+      )
+      VALUES ${rows.join(', ')}
+      ON CONFLICT (time, symbol)
+      DO UPDATE SET
+        financial_health_score = EXCLUDED.financial_health_score,
+        momentum_score = EXCLUDED.momentum_score,
+        dividend_score = EXCLUDED.dividend_score,
+        sector_score = EXCLUDED.sector_score,
+        composite_score = EXCLUDED.composite_score,
+        volatility = EXCLUDED.volatility,
+        liquidity_score = EXCLUDED.liquidity_score,
+        risk_level = EXCLUDED.risk_level
+    `;
+
+    await client.query(query);
+    successCount = scoresData.length;
+
+    await client.query('COMMIT');
+    console.log(`Bulk insert scores completed: ${successCount} succeeded, ${failureCount} failed`);
+    return { success: true, successCount, failureCount };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Bulk insert scores failed:', error.message);
+    return { success: false, error: error.message, successCount: 0, failureCount: scoresData.length };
+  } finally {
+    client.release();
+  }
+}
+
+/**
  * Insert recommendation
  */
 async function insertRecommendation(recData) {
@@ -913,7 +994,7 @@ async function getUserEmail(username) {
     }
     return result.rows[0].email;
   } catch (error) {
-    console.error('Error getting user email:', error.message);
+    console.error('Error getting user email:', error);
     return null;
   }
 }
@@ -992,6 +1073,7 @@ module.exports = {
   logScrape,
   bulkInsertStocks,
   bulkInsertDailyData,
+  bulkInsertScores,
   getUserPortfolio,
   getPortfolioSummary,
   addPortfolioHolding,
