@@ -13,7 +13,13 @@ require('dotenv').config();
 function calculateChange(current, previous) {
   if (!previous || previous === 0) return null;
   if (!current || current === 0) return null;
-  return ((current - previous) / previous) * 100;
+
+  const result = ((current - previous) / previous) * 100;
+
+  // Check for NaN or Infinity
+  if (!isFinite(result)) return null;
+
+  return result;
 }
 
 /**
@@ -153,13 +159,17 @@ async function bulkUpdateChanges(updates) {
   try {
     await client.query('BEGIN');
 
-    // Helper function to format a value for SQL
+    // Helper function to format a value for SQL with explicit type casting
     const formatValue = (val) => {
-      if (val === null || val === undefined) return 'NULL';
-      if (typeof val === 'string') return `'${val.replace(/'/g, "''")}'`;
+      if (val === null || val === undefined) return 'NULL::numeric';
+      if (typeof val === 'string') return `'${val.replace(/'/g, "''")}'::numeric`;
       if (val instanceof Date) return `'${val.toISOString()}'`;
-      if (typeof val === 'number') return String(val); // Numbers unquoted
-      return String(val);
+      if (typeof val === 'number') {
+        // Check for NaN or Infinity
+        if (!isFinite(val)) return 'NULL::numeric';
+        return `${val}::numeric`; // Explicitly cast to numeric
+      }
+      return 'NULL::numeric';
     };
 
     // Build CASE WHEN clauses for each column
@@ -188,12 +198,12 @@ async function bulkUpdateChanges(updates) {
     const query = `
       UPDATE stock_daily_data
       SET
-        change_1d = (CASE (symbol || '_' || extract(epoch from time)::bigint) ${cases.change_1d.map(c => c).join(' ')} ELSE NULL END),
-        change_1w = (CASE (symbol || '_' || extract(epoch from time)::bigint) ${cases.change_1w.map(c => c).join(' ')} ELSE NULL END),
-        change_1m = (CASE (symbol || '_' || extract(epoch from time)::bigint) ${cases.change_1m.map(c => c).join(' ')} ELSE NULL END),
-        change_3m = (CASE (symbol || '_' || extract(epoch from time)::bigint) ${cases.change_3m.map(c => c).join(' ')} ELSE NULL END),
-        change_6m = (CASE (symbol || '_' || extract(epoch from time)::bigint) ${cases.change_6m.map(c => c).join(' ')} ELSE NULL END),
-        change_1y = (CASE (symbol || '_' || extract(epoch from time)::bigint) ${cases.change_1y.map(c => c).join(' ')} ELSE NULL END)
+        change_1d = (CASE (symbol || '_' || extract(epoch from time)::bigint)::text ${cases.change_1d.map(c => c).join(' ')} ELSE NULL::numeric END)::numeric,
+        change_1w = (CASE (symbol || '_' || extract(epoch from time)::bigint)::text ${cases.change_1w.map(c => c).join(' ')} ELSE NULL::numeric END)::numeric,
+        change_1m = (CASE (symbol || '_' || extract(epoch from time)::bigint)::text ${cases.change_1m.map(c => c).join(' ')} ELSE NULL::numeric END)::numeric,
+        change_3m = (CASE (symbol || '_' || extract(epoch from time)::bigint)::text ${cases.change_3m.map(c => c).join(' ')} ELSE NULL::numeric END)::numeric,
+        change_6m = (CASE (symbol || '_' || extract(epoch from time)::bigint)::text ${cases.change_6m.map(c => c).join(' ')} ELSE NULL::numeric END)::numeric,
+        change_1y = (CASE (symbol || '_' || extract(epoch from time)::bigint)::text ${cases.change_1y.map(c => c).join(' ')} ELSE NULL::numeric END)::numeric
       WHERE (symbol, time) IN (
         ${updates.map(u => `('${u.symbol}', '${u.time.toISOString()}')`).join(', ')}
       )

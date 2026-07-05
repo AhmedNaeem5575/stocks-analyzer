@@ -28,11 +28,15 @@ CREATE TABLE IF NOT EXISTS stocks (
     industry VARCHAR(150),
     listed_date DATE,
     face_value DECIMAL(10,2),
+    is_active BOOLEAN DEFAULT true,
+    last_seen_date DATE,
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
 COMMENT ON TABLE stocks IS 'Basic company information for PSX listed stocks';
+COMMENT ON COLUMN stocks.is_active IS 'Whether the stock is actively trading on PSX';
+COMMENT ON COLUMN stocks.last_seen_date IS 'Last date this stock appeared in market data';
 
 -- Daily stock data (time-series data)
 CREATE TABLE IF NOT EXISTS stock_daily_data (
@@ -377,6 +381,8 @@ SELECT
     s.symbol,
     s.name,
     s.sector,
+    s.is_active,
+    s.last_seen_date,
     d.close AS current_price,
     d.market_cap,
     d.pe_ratio,
@@ -392,10 +398,20 @@ SELECT
     sc.volatility,
     sc.risk_level
 FROM stocks s
-LEFT JOIN stock_daily_data d ON s.symbol = d.symbol
-  AND d.time = (SELECT MAX(time) FROM stock_daily_data)
-LEFT JOIN stock_scores sc ON s.symbol = sc.symbol
-  AND sc.time = (SELECT MAX(time) FROM stock_scores);
+LEFT JOIN LATERAL (
+  SELECT close, market_cap, pe_ratio, dividend_yield, change_1d, change_1m, change_1y, time, symbol
+  FROM stock_daily_data
+  WHERE symbol = s.symbol
+  ORDER BY time DESC
+  LIMIT 1
+) d ON true
+LEFT JOIN LATERAL (
+  SELECT financial_health_score, momentum_score, dividend_score, sector_score, composite_score, volatility, risk_level, symbol, time
+  FROM stock_scores
+  WHERE symbol = s.symbol
+  ORDER BY time DESC
+  LIMIT 1
+) sc ON true;
 
 -- Create a view for top recommendations by timeframe
 CREATE OR REPLACE VIEW v_top_recommendations AS
