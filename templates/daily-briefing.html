@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PSX Stock Daily Briefing</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 28px;
+        }
+        .header p {
+            margin: 10px 0 0 0;
+            opacity: 0.9;
+            font-size: 16px;
+        }
+        .section {
+            padding: 25px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        .section:last-child {
+            border-bottom: none;
+        }
+        .section-title {
+            color: #1e3c72;
+            font-size: 20px;
+            font-weight: 600;
+            margin: 0 0 20px 0;
+            display: flex;
+            align-items: center;
+        }
+        .section-title .emoji {
+            margin-right: 10px;
+            font-size: 24px;
+        }
+        .market-overview {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+        }
+        .metric-card {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            text-align: center;
+        }
+        .metric-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: #1e3c72;
+        }
+        .metric-label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .portfolio-section {
+            background: linear-gradient(to right, #f8f9fa, #ffffff);
+        }
+        .portfolio-stats {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .stat {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 15px;
+            background-color: white;
+            border-radius: 6px;
+            border-left: 4px solid #1e3c72;
+        }
+        .stat-label {
+            font-size: 14px;
+            color: #666;
+        }
+        .stat-value {
+            font-size: 18px;
+            font-weight: 600;
+            color: #1e3c72;
+        }
+        .positive {
+            color: #28a745 !important;
+        }
+        .negative {
+            color: #dc3545 !important;
+        }
+        .alerts-box {
+            background-color: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 6px;
+            padding: 15px;
+            margin-top: 15px;
+        }
+        .alert-item {
+            display: flex;
+            align-items: start;
+            padding: 8px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .alert-item:last-child {
+            border-bottom: none;
+        }
+        .alert-icon {
+            margin-right: 10px;
+            font-size: 18px;
+        }
+        .opportunities-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .opportunities-table th,
+        .opportunities-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        .opportunities-table th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+            color: #1e3c72;
+        }
+        .opportunities-table tr:hover {
+            background-color: #f8f9fa;
+        }
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .badge-low {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .badge-medium {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        .badge-high {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .recommendations-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+        }
+        .recommendation-card {
+            background-color: #f8f9fa;
+            border-radius: 6px;
+            padding: 15px;
+            border-left: 4px solid;
+        }
+        .recommendation-card.low {
+            border-left-color: #28a745;
+        }
+        .recommendation-card.medium {
+            border-left-color: #ffc107;
+        }
+        .recommendation-card.high {
+            border-left-color: #dc3545;
+        }
+        .recommendation-card h4 {
+            margin: 0 0 10px 0;
+            font-size: 14px;
+            color: #1e3c72;
+        }
+        .recommendation-card p {
+            margin: 0;
+            font-size: 13px;
+            color: #666;
+            line-height: 1.4;
+        }
+        .timeframe-card {
+            background-color: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            padding: 15px;
+        }
+        .timeframe-card h4 {
+            margin: 0 0 10px 0;
+            color: #1e3c72;
+            font-size: 16px;
+        }
+        .timeframe-card p {
+            margin: 0;
+            font-size: 14px;
+            color: #666;
+            line-height: 1.6;
+        }
+        .footer {
+            background-color: #f8f9fa;
+            padding: 25px;
+            text-align: center;
+            color: #666;
+            font-size: 13px;
+        }
+        .disclaimer {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin: 15px 0;
+            font-size: 13px;
+            color: #856404;
+        }
+        @media (max-width: 600px) {
+            .market-overview,
+            .portfolio-stats,
+            .recommendations-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>PSX Stock Daily Briefing</h1>
+            <p>{{date}}</p>
+        </div>
+
+        <!-- Market Overview -->
+        <div class="section">
+            <h2 class="section-title">
+                <span class="emoji">📊</span>
+                Market Overview
+            </h2>
+            <div class="market-overview">
+                <div class="metric-card">
+                    <div class="metric-value">{{total_stocks}}</div>
+                    <div class="metric-label">Stocks Analyzed</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">{{market_sentiment}}</div>
+                    <div class="metric-label">Market Sentiment</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">{{avg_score}}/100</div>
+                    <div class="metric-label">Avg Score</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Portfolio Section -->
+        {{#if has_portfolio}}
+        <div class="section portfolio-section">
+            <h2 class="section-title">
+                <span class="emoji">💼</span>
+                Your Portfolio
+            </h2>
+            <div class="portfolio-stats">
+                <div class="stat">
+                    <span class="stat-label">Current Value</span>
+                    <span class="stat-value">{{portfolio_value}}</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Daily Change</span>
+                    <span class="stat-value {{#if portfolio_change_positive}}positive{{else}}negative{{/if}}">
+                        {{#if portfolio_change_positive}}+{{/if}}{{portfolio_change}}%
+                    </span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Unrealized Gain/Loss</span>
+                    <span class="stat-value {{#if portfolio_gain_loss_positive}}positive{{else}}negative{{/if}}">
+                        {{#if portfolio_gain_loss_positive}}+{{/if}}{{portfolio_gain_loss}}
+                    </span>
+                </div>
+            </div>
+            {{#if has_alerts}}
+            <div class="alerts-box">
+                <strong>🔔 Alerts:</strong>
+                {{#each alerts}}
+                <div class="alert-item">
+                    <span class="alert-icon">⚠️</span>
+                    <span><strong>{{this.symbol}}:</strong> {{this.message}}</span>
+                </div>
+                {{/each}}
+            </div>
+            {{/if}}
+        </div>
+        {{/if}}
+
+        <!-- Top Opportunities -->
+        <div class="section">
+            <h2 class="section-title">
+                <span class="emoji">🏆</span>
+                Top 5 Opportunities
+            </h2>
+            <table class="opportunities-table">
+                <thead>
+                    <tr>
+                        <th>Rank</th>
+                        <th>Symbol</th>
+                        <th>Score</th>
+                        <th>Risk Level</th>
+                        <th>Current Price</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{#each top_opportunities}}
+                    <tr>
+                        <td>{{@index}}</td>
+                        <td><strong>{{this.symbol}}</strong></td>
+                        <td>{{this.composite_score}}</td>
+                        <td><span class="badge badge-{{this.risk_level}}">{{this.risk_level}}</span></td>
+                        <td>PKR {{this.current_price}}</td>
+                    </tr>
+                    {{/each}}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Recommendations by Risk -->
+        <div class="section">
+            <h2 class="section-title">
+                <span class="emoji">🎯</span>
+                Recommendations by Risk Level
+            </h2>
+            <div class="recommendations-grid">
+                <div class="recommendation-card low">
+                    <h4>LOW Risk</h4>
+                    <p>{{low_risk_stocks}}</p>
+                </div>
+                <div class="recommendation-card medium">
+                    <h4>MEDIUM Risk</h4>
+                    <p>{{medium_risk_stocks}}</p>
+                </div>
+                <div class="recommendation-card high">
+                    <h4>HIGH Risk</h4>
+                    <p>{{high_risk_stocks}}</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recommendations by Timeframe -->
+        <div class="section">
+            <h2 class="section-title">
+                <span class="emoji">⏱️</span>
+                Recommendations by Investment Horizon
+            </h2>
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px;">
+                <div class="timeframe-card">
+                    <h4>SHORT Term (1-6 months)</h4>
+                    <p><strong>Momentum Plays</strong></p>
+                    <p>{{short_term_stocks}}</p>
+                </div>
+                <div class="timeframe-card">
+                    <h4>MEDIUM Term (6-18 months)</h4>
+                    <p><strong>Growth Stocks</strong></p>
+                    <p>{{medium_term_stocks}}</p>
+                </div>
+                <div class="timeframe-card">
+                    <h4>LONG Term (18+ months)</h4>
+                    <p><strong>Value Stocks</strong></p>
+                    <p>{{long_term_stocks}}</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            <div class="disclaimer">
+                <strong>⚠️ DISCLAIMER:</strong> This briefing is for educational purposes only and does NOT constitute financial advice. Always do your own research and consult with a qualified financial advisor before making investment decisions.
+            </div>
+            <p>PSX Stock Analysis System • Data from PSX Screener</p>
+            <p>Generated at: {{date}}</p>
+        </div>
+    </div>
+</body>
+</html>

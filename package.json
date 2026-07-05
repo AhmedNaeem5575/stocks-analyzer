@@ -9,20 +9,39 @@
     "analyze": "node analyzer.js",
     "strategies": "node strategies.js",
     "pipeline": "node pipeline.js",
-    "cli": "node cli.js"
+    "cli": "node cli.js",
+    "dashboard": "streamlit run dashboard/app.py",
+    "daily-update": "node daily-update-with-email.js",
+    "test-email": "node test-email.js",
+    "scheduler": "node scheduler.js",
+    "scheduler:once": "node scheduler.js --once",
+    "scheduler:stop": "node scheduler.js --stop",
+    "scheduler:status": "node scheduler.js --status",
+    "migrate:sectors": "node migrate-update-sectors.js",
+    "migrate:sectors:dry": "node migrate-update-sectors.js --dry-run",
+    "fix:sectors": "node fix-sector-codes.js"
   },
-  "keywords": ["psx", "stock", "analysis", "pakistan", "investment"],
+  "keywords": [
+    "psx",
+    "stock",
+    "analysis",
+    "pakistan",
+    "investment"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "playwright": "^1.40.0",
-    "pg": "^8.11.3",
-    "pg-hstore": "^2.3.4",
     "axios": "^1.6.0",
+    "bcrypt": "^6.0.0",
     "cheerio": "^1.0.0-rc12",
-    "node-cron": "^3.0.3",
+    "csv-writer": "^1.6.0",
     "dotenv": "^16.3.1",
-    "csv-writer": "^1.6.0"
+    "handlebars": "^4.7.9",
+    "node-cron": "^3.0.3",
+    "node-fetch": "^2.7.0",
+    "nodemailer": "^6.9.7",
+    "pg": "^8.11.3",
+    "pg-hstore": "^2.3.4"
   },
   "devDependencies": {
     "eslint": "^8.55.0"

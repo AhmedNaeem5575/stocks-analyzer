@@ -110,12 +110,6 @@ createdb psx_stocks
 psql -U postgres -d psx_stocks -f schema.sql
 ```
 
-### Playwright Not Installed
-
-```bash
-npx playwright install chromium
-```
-
 ### TimescaleDB Extension Missing
 
 ```sql

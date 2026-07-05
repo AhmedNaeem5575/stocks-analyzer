@@ -1,5 +1,10 @@
--- PSX Stock Analysis System - Database Schema
+-- PSX Stock Analysis System - Complete Database Schema
 -- PostgreSQL with optional TimescaleDB extension
+-- This single file contains all tables needed for the system
+
+-- ============================================================================
+-- EXTENSIONS
+-- ============================================================================
 
 -- Try to enable TimescaleDB extension (optional, for time-series optimization)
 -- If this fails, the system will work with regular PostgreSQL tables
@@ -10,6 +15,10 @@ EXCEPTION
     WHEN OTHERS THEN
         RAISE NOTICE 'TimescaleDB extension not available, using regular tables';
 END $$;
+
+-- ============================================================================
+-- CORE TABLES
+-- ============================================================================
 
 -- Stocks table (basic company information)
 CREATE TABLE IF NOT EXISTS stocks (
@@ -23,10 +32,14 @@ CREATE TABLE IF NOT EXISTS stocks (
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
+COMMENT ON TABLE stocks IS 'Basic company information for PSX listed stocks';
+
 -- Daily stock data (time-series data)
 CREATE TABLE IF NOT EXISTS stock_daily_data (
     time TIMESTAMP NOT NULL,
-    symbol VARCHAR(20) REFERENCES stocks(symbol) ON DELETE CASCADE,
+    scrape_id VARCHAR(50),
+    scrape_date DATE,
+    symbol VARCHAR(20) REFERENCES stocks(symbol) ON DELETE SET NULL,
     open DECIMAL(10,2),
     high DECIMAL(10,2),
     low DECIMAL(10,2),
@@ -49,8 +62,11 @@ CREATE TABLE IF NOT EXISTS stock_daily_data (
     PRIMARY KEY (time, symbol)
 );
 
+COMMENT ON TABLE stock_daily_data IS 'Daily OHLCV and fundamental data for stocks';
+
 -- Create index on symbol for faster joins
 CREATE INDEX IF NOT EXISTS idx_stock_daily_data_symbol ON stock_daily_data(symbol);
+CREATE INDEX IF NOT EXISTS idx_stock_daily_data_time ON stock_daily_data(time DESC);
 
 -- Convert to hypertable if TimescaleDB is available
 DO $$
@@ -80,6 +96,8 @@ CREATE TABLE IF NOT EXISTS stock_scores (
     PRIMARY KEY (time, symbol)
 );
 
+COMMENT ON TABLE stock_scores IS 'Multi-factor analysis scores for stocks';
+
 -- Convert to hypertable if TimescaleDB is available
 DO $$
 BEGIN
@@ -108,6 +126,8 @@ CREATE TABLE IF NOT EXISTS recommendations (
     PRIMARY KEY (time, symbol, timeframe)
 );
 
+COMMENT ON TABLE recommendations IS 'Investment recommendations by timeframe';
+
 -- Convert to hypertable if TimescaleDB is available
 DO $$
 BEGIN
@@ -135,6 +155,8 @@ CREATE TABLE IF NOT EXISTS sector_performance (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
+COMMENT ON TABLE sector_performance IS 'Sector-level performance metrics';
+
 -- Convert to hypertable if TimescaleDB is available
 DO $$
 BEGIN
@@ -158,40 +180,198 @@ CREATE TABLE IF NOT EXISTS scrape_log (
     data_source VARCHAR(100)
 );
 
--- User portfolio tracking (optional feature)
+COMMENT ON TABLE scrape_log IS 'Log of data scraping operations';
+
+-- ============================================================================
+-- AUTHENTICATION TABLES
+-- ============================================================================
+
+-- Users table for authentication
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    email VARCHAR(255),
+    created_at TIMESTAMP DEFAULT NOW(),
+    last_login TIMESTAMP,
+    is_active BOOLEAN DEFAULT TRUE
+);
+
+COMMENT ON TABLE users IS 'User authentication accounts';
+
+-- Create indexes
+CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+-- Remember tokens for persistent login
+CREATE TABLE IF NOT EXISTS remember_tokens (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token VARCHAR(255) NOT NULL UNIQUE,
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    last_used TIMESTAMP DEFAULT NOW()
+);
+
+COMMENT ON TABLE remember_tokens IS 'Persistent login tokens for remember me functionality';
+
+-- Create indexes
+CREATE INDEX IF NOT EXISTS idx_remember_tokens_token ON remember_tokens(token);
+CREATE INDEX IF NOT EXISTS idx_remember_tokens_user ON remember_tokens(user_id);
+
+-- ============================================================================
+-- PORTFOLIO TABLES
+-- ============================================================================
+
+-- Portfolio users table (for simplified user management)
+CREATE TABLE IF NOT EXISTS portfolio_users (
+    user_id VARCHAR(100) PRIMARY KEY,
+    email VARCHAR(200) UNIQUE NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+COMMENT ON TABLE portfolio_users IS 'Simplified user accounts for portfolio management';
+
+-- Create index
+CREATE INDEX IF NOT EXISTS idx_portfolio_users_email ON portfolio_users(email);
+
+-- Holdings table (alternative portfolio tracking with notes support)
+CREATE TABLE IF NOT EXISTS holdings (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    symbol VARCHAR(20) NOT NULL REFERENCES stocks(symbol) ON DELETE SET NULL,
+    shares INTEGER NOT NULL,
+    average_price DECIMAL(10,2) NOT NULL,
+    purchased_date DATE,
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    CONSTRAINT unique_holdings_user_symbol UNIQUE(user_id, symbol)
+);
+
+COMMENT ON TABLE holdings IS 'User portfolio holdings with notes support';
+
+-- Create indexes
+CREATE INDEX IF NOT EXISTS idx_holdings_user_symbol ON holdings(user_id, symbol);
+CREATE INDEX IF NOT EXISTS idx_holdings_symbol ON holdings(symbol);
+
+-- Portfolio holdings table (primary portfolio tracking)
 CREATE TABLE IF NOT EXISTS portfolio (
     id SERIAL PRIMARY KEY,
-    user_id VARCHAR(100),
-    symbol VARCHAR(20) REFERENCES stocks(symbol),
-    shares INTEGER,
-    avg_cost DECIMAL(10,2),
-    current_value DECIMAL(10,2),
-    unrealized_gain_loss DECIMAL(10,2),
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    symbol VARCHAR(20) NOT NULL REFERENCES stocks(symbol) ON DELETE SET NULL,
+    shares INTEGER NOT NULL,
+    avg_cost DECIMAL(10,2) NOT NULL,
+    current_value DECIMAL(15,2),
+    unrealized_gain_loss DECIMAL(15,2),
     purchase_date DATE,
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
+COMMENT ON TABLE portfolio IS 'User portfolio holdings';
+
+-- Create indexes
+CREATE INDEX IF NOT EXISTS idx_portfolio_user ON portfolio(user_id);
+CREATE INDEX IF NOT EXISTS idx_portfolio_symbol ON portfolio(symbol);
+
+-- Portfolio summary view
+CREATE OR REPLACE VIEW v_portfolio_summary AS
+SELECT
+    p.user_id,
+    COUNT(*) as holding_count,
+    COALESCE(SUM(p.current_value), 0) as total_value,
+    COALESCE(SUM(p.unrealized_gain_loss), 0) as total_gain_loss,
+    CASE
+        WHEN COALESCE(SUM(p.avg_cost * p.shares), 0) > 0
+        THEN COALESCE(SUM(p.unrealized_gain_loss), 0) / SUM(p.avg_cost * p.shares) * 100
+        ELSE 0
+    END as avg_return_pct
+FROM portfolio p
+GROUP BY p.user_id;
+
+-- ============================================================================
+-- ALERTS TABLES
+-- ============================================================================
+
 -- Alert table for price movements and signals
 CREATE TABLE IF NOT EXISTS alerts (
     id SERIAL PRIMARY KEY,
     time TIMESTAMP DEFAULT NOW(),
-    symbol VARCHAR(20) REFERENCES stocks(symbol),
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    symbol VARCHAR(20) REFERENCES stocks(symbol) ON DELETE SET NULL,
     alert_type VARCHAR(50),                 -- PRICE_TARGET, STOP_LOSS, BREAKOUT, DOWNTREND, DIVIDEND
     message TEXT,
     is_read BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Create indexes for common queries
+COMMENT ON TABLE alerts IS 'Price and signal alerts for user portfolio';
+
+-- ============================================================================
+-- INDEXES FOR COMMON QUERIES
+-- ============================================================================
+
 CREATE INDEX IF NOT EXISTS idx_recommendations_timeframe ON recommendations(timeframe, time DESC);
 CREATE INDEX IF NOT EXISTS idx_recommendations_rank ON recommendations(time, timeframe, recommendation_rank);
 CREATE INDEX IF NOT EXISTS idx_stock_scores_composite ON stock_scores(time DESC, composite_score DESC);
-CREATE INDEX IF NOT EXISTS idx_stock_daily_data_time ON stock_daily_data(time DESC);
-CREATE INDEX IF NOT EXISTS idx_alerts_unread ON alerts(is_read, time DESC);
+CREATE INDEX IF NOT EXISTS idx_alerts_unread ON alerts(user_id, is_read, time DESC);
+CREATE INDEX IF NOT EXISTS idx_alerts_user_symbol ON alerts(user_id, symbol);
+
+-- ============================================================================
+-- VIEWS
+-- ============================================================================
+
+-- Holdings view with current data
+CREATE OR REPLACE VIEW v_holdings AS
+SELECT
+    h.id,
+    h.user_id,
+    h.symbol,
+    h.shares,
+    h.average_price,
+    h.purchased_date,
+    h.notes,
+    h.created_at,
+    h.updated_at,
+    s.name,
+    s.sector,
+    d.close AS current_price,
+    d.change_1d,
+    d.change_1y,
+    sc.composite_score,
+    sc.risk_level,
+    (h.shares * d.close) AS current_value,
+    (h.shares * d.close - h.shares * h.average_price) AS profit_loss,
+    CASE
+        WHEN h.average_price > 0 THEN ((d.close - h.average_price) / h.average_price * 100)
+        ELSE NULL
+    END AS profit_loss_pct,
+    CASE
+        WHEN h.shares > 0 THEN (h.shares * d.close)
+        ELSE 0
+    END AS total_cost
+FROM holdings h
+JOIN stocks s ON h.symbol = s.symbol
+LEFT JOIN LATERAL (
+    SELECT close, change_1d, change_1y, symbol
+    FROM stock_daily_data
+    WHERE symbol = h.symbol
+    ORDER BY time DESC
+    LIMIT 1
+) d ON h.symbol = d.symbol
+LEFT JOIN LATERAL (
+    SELECT composite_score, risk_level, symbol
+    FROM stock_scores
+    WHERE symbol = h.symbol
+    ORDER BY time DESC
+    LIMIT 1
+) sc ON h.symbol = sc.symbol;
+
+COMMENT ON VIEW v_holdings IS 'Portfolio holdings with current market data and calculations';
 
 -- Create a view for latest stock data with scores
--- Note: Uses separate MAX(time) filters since daily data and scores have different timestamps
+-- Note: Uses LEFT JOINs to show all stocks even if they don't have daily data or scores yet
 CREATE OR REPLACE VIEW v_stock_analysis AS
 SELECT
     s.symbol,
@@ -212,9 +392,9 @@ SELECT
     sc.volatility,
     sc.risk_level
 FROM stocks s
-JOIN stock_daily_data d ON s.symbol = d.symbol
+LEFT JOIN stock_daily_data d ON s.symbol = d.symbol
   AND d.time = (SELECT MAX(time) FROM stock_daily_data)
-JOIN stock_scores sc ON s.symbol = sc.symbol
+LEFT JOIN stock_scores sc ON s.symbol = sc.symbol
   AND sc.time = (SELECT MAX(time) FROM stock_scores);
 
 -- Create a view for top recommendations by timeframe
@@ -241,12 +421,9 @@ JOIN stock_scores sc ON r.symbol = sc.symbol AND sc.time = (SELECT MAX(time) FRO
 WHERE r.time = (SELECT MAX(time) FROM recommendations)
 ORDER BY r.timeframe, r.recommendation_rank;
 
--- Comments
-COMMENT ON TABLE stocks IS 'Basic company information for PSX listed stocks';
-COMMENT ON TABLE stock_daily_data IS 'Daily OHLCV and fundamental data for stocks';
-COMMENT ON TABLE stock_scores IS 'Multi-factor analysis scores for stocks';
-COMMENT ON TABLE recommendations IS 'Investment recommendations by timeframe';
-COMMENT ON TABLE sector_performance IS 'Sector-level performance metrics';
-COMMENT ON TABLE scrape_log IS 'Log of data scraping operations';
-COMMENT ON TABLE portfolio IS 'User portfolio tracking';
-COMMENT ON TABLE alerts IS 'Price and signal alerts';
+-- ============================================================================
+-- CLEANUP EXPIRED TOKENS
+-- ============================================================================
+
+-- Clean up expired tokens (run this periodically via cron job)
+DELETE FROM remember_tokens WHERE expires_at < NOW();
