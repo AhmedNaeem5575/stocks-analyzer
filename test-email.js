@@ -7,14 +7,19 @@
  * It will send a test email to verify everything is working.
  *
  * Usage:
- *   node test-email.js                    # Test SMTP connection only
+ *   node test-email.js                    # Test email connection only
  *   node test-email.js --send             # Send a test email
  *
- * Environment variables required in .env:
- *   EMAIL_USER               Your email address
- *   EMAIL_APP_PASSWORD       Your app-specific password (not your login password!)
- *   EMAIL_HOST               SMTP server (default: smtp.gmail.com)
- *   EMAIL_PORT               SMTP port (default: 587)
+ * Environment variables in .env:
+ *   EMAIL_SERVICE=sendgrid|smtp
+ *   SENDGRID_API_KEY=your-key (for sendgrid)
+ *   EMAIL_FROM=sender@example.com
+ *
+ * For SMTP:
+ *   EMAIL_USER=your-email@gmail.com
+ *   EMAIL_APP_PASSWORD=your-app-password
+ *   EMAIL_HOST=smtp.gmail.com
+ *   EMAIL_PORT=587
  */
 
 const notifier = require('./notifier');
@@ -43,26 +48,23 @@ async function runTest() {
     // Step 2: Validate configuration
     console.log('📋 Step 2: Validating email configuration...');
     const config = notifier.validateConfig();
-    console.log(`   ✓ Email user: ${config.user}`);
-    console.log(`   ✓ SMTP host: ${config.host}:${config.port}`);
+    console.log(`   ✓ Email service: ${config.service}`);
     console.log(`   ✓ From: ${config.from}\n`);
 
-    // Step 3: Test SMTP connection
-    console.log('🔌 Step 3: Testing SMTP connection...');
+    // Step 3: Test email connection
+    console.log('🔌 Step 3: Testing email connection...');
     const testResult = await notifier.testEmail();
 
     if (!testResult.success) {
       console.error(`   ✗ Connection failed: ${testResult.error}`);
       console.log('\n💡 Troubleshooting tips:');
-      console.log('   1. For Gmail: Generate an App Password at');
-      console.log('      https://myaccount.google.com/apppasswords');
-      console.log('   2. Use the App Password (16 characters) as EMAIL_APP_PASSWORD');
-      console.log('   3. Make sure "Less secure app access" is NOT required');
-      console.log('   4. Check if 2FA is enabled on your account\n');
+      console.log('   • Check your EMAIL_SERVICE setting in .env');
+      console.log('   • For SendGrid: Verify SENDGRID_API_KEY is set');
+      console.log('   • For SMTP: Check EMAIL_HOST, EMAIL_PORT, EMAIL_USER, EMAIL_APP_PASSWORD\n');
       process.exit(1);
     }
 
-    console.log('   ✓ SMTP connection successful\n');
+    console.log('   ✓ Connection successful\n');
 
     // Step 4: Send test email (if requested)
     if (shouldSend) {
@@ -91,10 +93,10 @@ async function runTest() {
   } catch (error) {
     console.error(`\n❌ Test failed: ${error.message}\n`);
     console.log('💡 Make sure you have configured these in your .env file:');
-    console.log('   EMAIL_USER=your-email@gmail.com');
-    console.log('   EMAIL_APP_PASSWORD=your-16-char-app-password');
-    console.log('   EMAIL_HOST=smtp.gmail.com');
-    console.log('   EMAIL_PORT=587\n');
+    console.log('   EMAIL_SERVICE=sendgrid|smtp');
+    console.log('   SENDGRID_API_KEY=your-key (if using sendgrid)');
+    console.log('   EMAIL_USER=your-email@gmail.com (if using smtp)');
+    console.log('   EMAIL_APP_PASSWORD=your-app-password (if using smtp)\n');
     process.exit(1);
   }
 }

@@ -1,7 +1,7 @@
 /**
  * Email Notification Service
- * Handles email delivery via SMTP (nodemailer)
- * Includes retry logic and template rendering
+ * Handles email delivery via multiple APIs (Resend, SendGrid) or SMTP fallback
+ * API-based services work on Railway (which blocks SMTP ports)
  */
 
 const nodemailer = require('nodemailer');
@@ -9,6 +9,28 @@ const Handlebars = require('handlebars');
 const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
+
+// Try to load Resend (recommended - easier setup, 100k free emails/month)
+let resendMail = null;
+try {
+  const Resend = require('resend');
+  if (process.env.RESEND_API_KEY) {
+    resendMail = new Resend(process.env.RESEND_API_KEY);
+  }
+} catch (e) {
+  // Resend not installed
+}
+
+// Try to load SendGrid (alternative)
+let sgMail = null;
+try {
+  sgMail = require('@sendgrid/mail');
+  if (process.env.SENDGRID_API_KEY) {
+    sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+  }
+} catch (e) {
+  // SendGrid not installed
+}
 
 // ANSI color codes
 const colors = {
@@ -25,9 +47,33 @@ function colorize(text, color) {
 }
 
 /**
- * Validate email configuration
+ * Get email service type from environment
+ */
+function getEmailService() {
+  return (process.env.EMAIL_SERVICE || 'smtp').toLowerCase();
+}
+
+/**
+ * Validate email configuration (only for SMTP)
  */
 function validateConfig() {
+  const service = getEmailService();
+
+  if (service === 'sendgrid') {
+    // SendGrid only requires API key and FROM email
+    if (!process.env.SENDGRID_API_KEY) {
+      throw new Error('SENDGRID_API_KEY is required when EMAIL_SERVICE=sendgrid');
+    }
+    if (!process.env.EMAIL_FROM) {
+      throw new Error('EMAIL_FROM is required (use simple format: email@domain.com)');
+    }
+    return {
+      service: 'sendgrid',
+      from: process.env.EMAIL_FROM
+    };
+  }
+
+  // SMTP validation
   const required = ['EMAIL_USER', 'EMAIL_APP_PASSWORD'];
   const missing = required.filter(key => !process.env[key]);
 
@@ -36,6 +82,7 @@ function validateConfig() {
   }
 
   return {
+    service: 'smtp',
     host: process.env.EMAIL_HOST || 'smtp.gmail.com',
     port: parseInt(process.env.EMAIL_PORT) || 587,
     secure: process.env.EMAIL_SECURE === 'true',
@@ -69,6 +116,97 @@ function createTransporter() {
  */
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Send email via SendGrid API (works on Railway - uses HTTPS)
+ */
+async function sendEmailViaSendgrid(to, subject, html, text = null) {
+  if (!sgMail || !process.env.SENDGRID_API_KEY) {
+    return { success: false, error: 'SendGrid not configured' };
+  }
+
+  const fromEmail = process.env.EMAIL_FROM || process.env.EMAIL_USER;
+
+  try {
+    const msg = {
+      to: Array.isArray(to) ? to : [to],
+      from: fromEmail,
+      subject: subject,
+      text: text || html.replace(/<[^>]*>/g, ''),
+      html: html
+    };
+
+    console.log(colorize(`[Email] Sending via SendGrid API to ${msg.to}`, 'cyan'));
+    console.log(colorize(`[Email] From: ${fromEmail}`, 'cyan'));
+
+    const response = await sgMail.send(msg);
+
+    console.log(colorize(`[Email] ✓ Sent via SendGrid: ${response[0]?.statusCode || 'success'}`, 'green'));
+
+    return { success: true, messageId: response[0]?.headers?.['x-message-id'] };
+  } catch (error) {
+    console.error(colorize(`[Email] ✗ SendGrid failed: ${error.message}`, 'red'));
+    if (error.response) {
+      console.error(colorize(`[Email] Response body: ${JSON.stringify(error.response.body)}`, 'red'));
+      console.error(colorize(`[Email] Response status: ${error.response.statusCode}`, 'red'));
+    }
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Send email via Resend API (works on Railway - uses HTTPS, easier verification)
+ */
+async function sendEmailViaResend(to, subject, html, text = null) {
+  if (!resendMail || !process.env.RESEND_API_KEY) {
+    return { success: false, error: 'Resend not configured' };
+  }
+
+  const fromEmail = process.env.EMAIL_FROM || process.env.EMAIL_USER;
+
+  try {
+    const data = await resendMail.emails.send({
+      from: fromEmail,
+      to: Array.isArray(to) ? to : [to],
+      subject: subject,
+      text: text || html.replace(/<[^>]*>/g, ''),
+      html: html
+    });
+
+    console.log(colorize(`[Email] ✓ Sent via Resend: ${data.id}`, 'green'));
+
+    return { success: true, messageId: data.id };
+  } catch (error) {
+    console.error(colorize(`[Email] ✗ Resend failed: ${error.message}`, 'red'));
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Send email using configured service (no fallback)
+ */
+async function sendEmailWithFallback(to, subject, html, text = null) {
+  const service = getEmailService();
+
+  console.log(colorize(`[Email] Email service: ${service.toUpperCase()}`, 'cyan'));
+
+  if (service === 'sendgrid') {
+    if (!sgMail || !process.env.SENDGRID_API_KEY) {
+      console.error(colorize('[Email] ✗ SendGrid requested but not configured', 'red'));
+      return { success: false, error: 'SendGrid requested but SENDGRID_API_KEY not set' };
+    }
+    console.log(colorize('[Email] Using SendGrid API', 'cyan'));
+    return await sendEmailViaSendgrid(to, subject, html, text);
+  }
+
+  if (service === 'smtp') {
+    console.log(colorize('[Email] Using SMTP', 'cyan'));
+    return sendEmail(to, subject, html, text);
+  }
+
+  console.error(colorize(`[Email] ✗ Unknown email service: ${service}`, 'red'));
+  return { success: false, error: `Unknown email service: ${service}` };
 }
 
 /**
@@ -197,7 +335,7 @@ async function sendDailyBriefing(reportData, recipientEmail = null) {
     // Send email
     const subject = `PSX Stock Daily Briefing - ${new Date().toLocaleDateString('en-PK')}`;
 
-    const result = await sendEmail(user_email, subject, html, text);
+    const result = await sendEmailWithFallback(user_email, subject, html, text);
 
     if (result.success) {
       console.log(colorize('[Email] ✓ Daily briefing sent successfully', 'green'));
@@ -320,17 +458,36 @@ function generateTextVersion(data) {
  */
 async function testEmail() {
   try {
-    console.log(colorize('[Email] Testing email configuration...', 'cyan'));
+    const service = getEmailService();
+    console.log(colorize(`[Email] Testing email configuration for: ${service.toUpperCase()}...`, 'cyan'));
 
-    const config = validateConfig();
-    console.log(colorize(`[Email] Config: ${config.host}:${config.port}`, 'cyan'));
+    if (service === 'sendgrid') {
+      // Test SendGrid configuration
+      if (!process.env.SENDGRID_API_KEY) {
+        console.error(colorize('[Email] ✗ SENDGRID_API_KEY not set', 'red'));
+        return { success: false, error: 'SENDGRID_API_KEY not set' };
+      }
+      console.log(colorize('[Email] ✓ SendGrid API key configured', 'green'));
+      console.log(colorize(`[Email] ✓ From: ${process.env.EMAIL_FROM}`, 'green'));
+      return { success: true };
+    }
 
-    const transporter = createTransporter();
-    await transporter.verify();
+    if (service === 'smtp') {
+      // Test SMTP configuration
+      const config = validateConfig();
+      console.log(colorize(`[Email] Config: ${config.host}:${config.port}`, 'cyan'));
 
-    console.log(colorize('[Email] ✓ SMTP connection verified', 'green'));
+      const transporter = createTransporter();
+      await transporter.verify();
 
-    await transporter.close();
+      console.log(colorize('[Email] ✓ SMTP connection verified', 'green'));
+
+      await transporter.close();
+      return { success: true };
+    }
+
+    // Auto-detect
+    console.log(colorize('[Email] ✓ No explicit service set, skipping test', 'green'));
     return { success: true };
   } catch (error) {
     console.error(colorize(`[Email] ✗ Configuration test failed: ${error.message}`, 'red'));
@@ -359,13 +516,16 @@ async function sendTestEmail(recipientEmail = null) {
     </html>
   `;
 
-  return sendEmail(user_email, 'PSX Stock Analysis - Test Email', html);
+  return sendEmailWithFallback(user_email, 'PSX Stock Analysis - Test Email', html);
 }
 
 module.exports = {
   validateConfig,
   createTransporter,
   sendEmail,
+  sendEmailWithFallback,
+  sendEmailViaSendgrid,
+  sendEmailViaResend,
   loadTemplate,
   sendDailyBriefing,
   testEmail,
